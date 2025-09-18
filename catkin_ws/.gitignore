@@ -1,6 +1,0 @@
-build/
-devel/
-install/
-logs
-.catkin_tools
-.vscode/
