@@ -1,0 +1,1 @@
+from .planner import VanHallHumanReaching3D_Optimized
