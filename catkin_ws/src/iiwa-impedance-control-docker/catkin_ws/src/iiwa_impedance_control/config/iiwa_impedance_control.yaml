@@ -1,0 +1,42 @@
+joint_state_controller:
+  type: joint_state_controller/JointStateController
+  publish_rate: 500
+
+CartesianImpedanceController:
+  type: cartesian_impedance_controller/CartesianImpedanceController
+  joints:
+    - iiwa_joint_1
+    - iiwa_joint_2
+    - iiwa_joint_3
+    - iiwa_joint_4
+    - iiwa_joint_5
+    - iiwa_joint_6
+    - iiwa_joint_7
+  end_effector: dremel_tool_link_ee
+
+JointImpedanceController:
+  type: joint_impedance_controller/JointImpedanceController
+  joints:
+    - iiwa_joint_1
+    - iiwa_joint_2
+    - iiwa_joint_3
+    - iiwa_joint_4
+    - iiwa_joint_5
+    - iiwa_joint_6
+    - iiwa_joint_7
+
+CartesianTrajectoryGenerator:
+  time_limit: 1.0 # [%]
+  goal_translation_tolerance: 0.002 # [m]
+  goal_rotation_tolerance: 0.5 # [rad]
+
+JointTrajectoryGenerator:
+  time_limit: 1.5 # [%]
+  goal_tolerance:
+    - 0.01 # [rad]
+    - 0.01 # [rad]
+    - 0.01 # [rad]
+    - 0.01 # [rad]
+    - 0.01 # [rad]
+    - 0.01 # [rad]
+    - 0.01 # [rad]

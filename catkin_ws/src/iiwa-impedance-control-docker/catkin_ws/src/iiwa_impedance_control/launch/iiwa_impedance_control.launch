@@ -1,0 +1,27 @@
+<launch>
+    <!-- Select the controller -->
+  <arg name="controller" default="CartesianImpedanceController"/>
+
+  <!-- Load joint controller configurations from YAML file to parameter server -->
+  <rosparam file="$(find iiwa_impedance_control)/config/iiwa_impedance_control.yaml" command="load"/>
+
+  <!-- load the controllers -->
+  <node if="$(eval controller == 'JointImpedanceController')" name="cartesian_impedance_controller" pkg="controller_manager" type="spawner" respawn="false"
+    output="screen" launch-prefix="nice -n 0 ionice -c 2 -n 0" ns="/iiwa" args="--stopped /CartesianImpedanceController"/>
+
+  <node if="$(eval controller == 'JointImpedanceController')" name="joint_impedance_controller" pkg="controller_manager" type="spawner" respawn="false"
+    output="screen" launch-prefix="nice -n 0 ionice -c 2 -n 0" ns="/iiwa" args="/JointImpedanceController"/>
+
+  <node if="$(eval controller == 'CartesianImpedanceController')" name="cartesian_impedance_controller" pkg="controller_manager" type="spawner" respawn="false"
+    output="screen" launch-prefix="nice -n 0 ionice -c 2 -n 0" ns="/iiwa" args="/CartesianImpedanceController"/>
+
+  <node if="$(eval controller == 'CartesianImpedanceController')" name="joint_impedance_controller" pkg="controller_manager" type="spawner" respawn="false"
+    output="screen" launch-prefix="nice -n 0 ionice -c 2 -n 0" ns="/iiwa" args="--stopped /JointImpedanceController"/>
+
+  <!-- convert joint states to TF transforms for rviz, etc -->
+  <node name="robot_state_publisher" pkg="robot_state_publisher" type="robot_state_publisher"
+    respawn="false" output="screen">
+    <remap from="/joint_states" to="/iiwa/joint_states" />
+  </node>
+
+</launch>
