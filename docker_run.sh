@@ -22,7 +22,7 @@ else
     echo "Note: First run will show 'setup.bash not found' - this is normal!"
     docker run -it --user kuka_cor --name my_container --network=host --ipc=host \
         -v $PWD/catkin_ws:/catkin_ws -v /tmp/.X11-unix:/tmp/.X11-unix:rw \
-        --env=DISPLAY iiwa-imp-cntrl
+        --env=DISPLAY kuka-planning-image
 fi
 
 echo ""

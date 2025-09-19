@@ -293,6 +293,16 @@ class VanHallHumanReaching3D_Optimized:
                     print(f"Adjusting horizon from {self.H} to {new_H} steps for Fitts' duration")
                     old_H = self.H
                     self.H = new_H
+                    
+                    # Update bounds computer with new horizon
+                    self.bounds_computer = BoundsComputer(
+                        self.H, self.nq, self.NST, self.NGOAL, self.cov_min,
+                        np.array(self.model.joint_limits_lower),
+                        np.array(self.model.joint_limits_upper),
+                        np.array(self.model.joint_velocity_limits),
+                        np.array(self.model.joint_effort_limits)
+                    )
+                    
                     # Rebuild solver template with new horizon
                     print("Rebuilding solver template for new horizon...")
                     self._build_solver_template()

@@ -36,7 +36,7 @@ class RobotKinematics:
         """Initialize Pinocchio model from URDF."""
         if urdf_path is None:
             # Default URDF path
-            repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+            repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
             urdf_path = os.path.join(repo_root, "parameters", "dynamics", "lbr_iiwa7_r800.urdf")
         
         if not os.path.isfile(urdf_path):

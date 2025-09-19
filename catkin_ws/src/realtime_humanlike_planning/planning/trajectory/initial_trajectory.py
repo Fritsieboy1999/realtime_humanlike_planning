@@ -193,7 +193,14 @@ class InitialTrajectoryGenerator:
     def create_warm_start_from_previous(self, previous_solution: np.ndarray, 
                                       task_params: Any, H: int) -> Optional[np.ndarray]:
         """
-        Create warm start by adapting previous solution.
+        Create warm start by intelligently adapting previous solution.
+        
+        This method performs several adaptations:
+        1. Adjusts initial state to match new task
+        2. Adapts final state using IK for new goal
+        3. Smoothly interpolates intermediate states
+        4. Scales covariances appropriately
+        5. Adjusts control inputs for new trajectory
         
         Args:
             previous_solution: Previous optimization solution
@@ -207,6 +214,7 @@ class InitialTrajectoryGenerator:
             # Check if previous solution has compatible size
             expected_size = self.NST * H + self.NST * H + self.nq * H
             if previous_solution.shape[0] != expected_size:
+                print(f"Warning: Previous solution size mismatch ({previous_solution.shape[0]} vs {expected_size})")
                 return None
             
             # Extract previous trajectories
@@ -217,26 +225,117 @@ class InitialTrajectoryGenerator:
             C_prev = previous_solution[nX:nX+nC].reshape(self.NST, H, order='F')
             U_prev = previous_solution[nX+nC:].reshape(self.nq, H, order='F')
             
-            # Adapt to new initial condition
-            X_adapted = X_prev.copy()
-            X_adapted[:, 0] = task_params.xi0  # Set new initial state
+            # Adapt state trajectory intelligently
+            X_adapted = self._adapt_state_trajectory(X_prev, task_params, H)
             
-            # Try to adapt final state to new goal
-            try:
-                q_new_goal = self.kinematics.solve_ik(task_params.goal, X_prev[:7, -1], max_iters=10)
-                X_adapted[:7, -1] = q_new_goal
-                X_adapted[7:14, -1] = 0.0  # Zero final velocity
-            except Exception:
-                pass  # Keep previous final state
+            # Adapt covariance trajectory
+            C_adapted = self._adapt_covariance_trajectory(C_prev, X_prev, X_adapted, H)
+            
+            # Adapt control trajectory
+            U_adapted = self._adapt_control_trajectory(U_prev, X_prev, X_adapted, H)
             
             # Rebuild solution vector
             x0_adapted = np.concatenate([
                 X_adapted.ravel(order='F'),
-                C_prev.ravel(order='F'),
-                U_prev.ravel(order='F')
+                C_adapted.ravel(order='F'),
+                U_adapted.ravel(order='F')
             ])
             
+            print(f"Successfully adapted previous solution for warm start")
             return x0_adapted
             
-        except Exception:
+        except Exception as e:
+            print(f"Warning: Warm start adaptation failed: {e}")
             return None
+    
+    def _adapt_state_trajectory(self, X_prev: np.ndarray, task_params: Any, H: int) -> np.ndarray:
+        """Adapt state trajectory for new task."""
+        X_adapted = X_prev.copy()
+        
+        # Set new initial state
+        X_adapted[:, 0] = task_params.xi0
+        
+        # Try to solve IK for new goal
+        q_prev_final = X_prev[:7, -1]
+        try:
+            q_new_goal = self.kinematics.solve_ik(task_params.goal, q_prev_final, 
+                                                max_iters=20, tol=1e-4)
+            X_adapted[:7, -1] = q_new_goal
+            X_adapted[7:14, -1] = 0.0  # Zero final velocity
+            ik_success = True
+        except Exception:
+            # If IK fails, use previous final configuration
+            ik_success = False
+        
+        # Smooth interpolation between new initial and final states
+        if ik_success:
+            q_start = task_params.xi0[:7]
+            q_goal = X_adapted[:7, -1]
+            
+            # Use smooth S-curve interpolation for better trajectories
+            time_points = np.linspace(0, 1, H)
+            s = 0.5 * (1 - np.cos(np.pi * time_points))
+            
+            for i in range(7):
+                X_adapted[i, :] = q_start[i] + s * (q_goal[i] - q_start[i])
+            
+            # Recompute velocities
+            for k in range(1, H-1):
+                X_adapted[7:14, k] = (X_adapted[:7, k+1] - X_adapted[:7, k-1]) / (2 * 0.1)  # Assume dt=0.1
+            X_adapted[7:14, 0] = task_params.xi0[7:14]  # Initial velocity
+            X_adapted[7:14, -1] = 0.0  # Final velocity
+        
+        return X_adapted
+    
+    def _adapt_covariance_trajectory(self, C_prev: np.ndarray, X_prev: np.ndarray, 
+                                   X_adapted: np.ndarray, H: int) -> np.ndarray:
+        """Adapt covariance trajectory based on state changes."""
+        C_adapted = C_prev.copy()
+        
+        # Scale covariances based on how much the trajectory changed
+        for k in range(H):
+            state_change = np.linalg.norm(X_adapted[:, k] - X_prev[:, k])
+            if state_change > 0.1:  # Significant change
+                # Increase covariance to account for uncertainty
+                scale_factor = 1.0 + 0.5 * state_change
+                C_adapted[:, k] = C_prev[:, k] * scale_factor
+            
+            # Ensure minimum covariance
+            C_adapted[:, k] = np.maximum(C_adapted[:, k], 1e-6)
+        
+        return C_adapted
+    
+    def _adapt_control_trajectory(self, U_prev: np.ndarray, X_prev: np.ndarray,
+                                X_adapted: np.ndarray, H: int) -> np.ndarray:
+        """Adapt control trajectory for new state trajectory."""
+        U_adapted = U_prev.copy()
+        
+        # Recompute controls using simple inverse dynamics where trajectory changed significantly
+        for k in range(H-1):
+            state_change = np.linalg.norm(X_adapted[:, k] - X_prev[:, k])
+            
+            if state_change > 0.05:  # Significant change, recompute control
+                q_k = X_adapted[:7, k]
+                dq_k = X_adapted[7:14, k]
+                
+                # Desired acceleration
+                if k < H-1:
+                    dq_next = X_adapted[7:14, k+1]
+                    ddq_desired = (dq_next - dq_k) / 0.1  # Assume dt=0.1
+                else:
+                    ddq_desired = -dq_k / 0.1  # Decelerate to zero
+                
+                # Simple inverse dynamics
+                try:
+                    M = self.dynamics.compute_mass_matrix(q_k)
+                    B = np.diag(self.dynamics.joint_damping)
+                    U_adapted[:, k] = M @ ddq_desired + B @ dq_k
+                    
+                    # Clamp to reasonable limits
+                    torque_limits = np.array([160, 160, 88, 88, 55, 20, 20])  # Conservative limits
+                    U_adapted[:, k] = np.clip(U_adapted[:, k], -torque_limits, torque_limits)
+                except Exception:
+                    # Keep previous control if dynamics computation fails
+                    pass
+        
+        return U_adapted

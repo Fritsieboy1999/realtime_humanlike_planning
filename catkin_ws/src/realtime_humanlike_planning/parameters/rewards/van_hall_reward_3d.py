@@ -5,95 +5,53 @@ Van Hall reward parameters for 3D reaching tasks.
 from __future__ import annotations
 
 import numpy as np
-from dataclasses import dataclass
+from dataclasses import dataclass, replace, field
 from typing import List, Union
 
 
 @dataclass
 class VanHallRewardParams3D:
-    """Reward parameters for Van Hall 3D reaching tasks."""
+    """Van Hall 3D reward parameters for human-like reaching with terminal covariance penalty."""
     
-    # Time discretization
-    h: float  # Time step (seconds)
+    # Terminal cost parameters
+    rescale: float = 1000.0                     # scaling factor for terminal cost
+    use_terminal_cost: bool = True              # whether to include terminal covariance penalty
     
-    # Noise parameters
-    sigma_tau: float  # Control-dependent noise
-    eps: float  # Signal-independent noise
+    # Running cost type and parameters - can be a string or list of strings for combinations
+    cost_type: Union[str, List[str]] = field(default_factory=lambda: ["input_adapted", "path_straightness", "endpoint_jerk"])  # "input", "input_adapted", "distance", "path_straightness", "gaussian_reward", "torque_derivative", "end_effector_covariance", "endpoint_jerk", or list for combinations
+    ctrl_cost: float = 0.00001                  # control effort penalty (when "input" in cost_type)
+    torque_derivative_cost: float = 0.0001      # torque derivative penalty (when "torque_derivative" in cost_type)
+    input_adapted_cost: float = 0.0005          # adapted input cost scaling factor (when "input_adapted" in cost_type)
+    width_scaling_weight: float = 1.0           # weight for sigmoid width scaling (higher = stronger effect)
     
-    # Cost weights
-    ctrl_cost: float  # Control effort cost
-    input_adapted_cost: float  # Adaptive input cost
-    torque_derivative_cost: float  # Torque derivative cost
-    distance_cost: float  # Distance to goal cost
-    path_straightness_cost: float  # Path straightness cost
-    end_effector_covariance_cost: float  # End-effector covariance cost
-    endpoint_jerk_cost: float  # Endpoint jerk cost
-    exp_dist_cost: float  # Exponential distance cost
+    distance_cost: float = 10.0                 # EE distance penalty weight (when "distance" in cost_type)
+    path_straightness_cost: float = 5.0         # path straightness penalty weight (when "path_straightness" in cost_type)
+    endpoint_variance_cost: float = 20          # Gaussian reward weight (when "gaussian_reward" in cost_type) - negative log-likelihood
+    end_effector_covariance_cost: float = 1.0   # end effector covariance penalty weight (when "end_effector_covariance" in cost_type)
+    endpoint_jerk_cost: float = 1e-6            # endpoint jerk penalty weight (when "endpoint_jerk" in cost_type)
     
-    # Cost type configuration
-    cost_type: Union[str, List[str]]  # Type(s) of cost to use
+    # New discounted Gaussian reward parameters
+    exp_dist_cost: float = 0.1
+    discount_factor: float = 0.99               # Time discount factor (0.99 = 1% discount per step)
+    width: np.ndarray = field(default_factory=lambda: np.array([0.01, 0.01, 0.01]))  # Task width matrix diagonal
     
-    # Scaling and normalization
-    rescale: float  # Rescaling factor
+    # Enhanced Gaussian reward parameters with temperature softening
+    gauss_temperature: float = 10.0             # Temperature for softening early reward (tau >= 1.0)
+    early_width_scale: float = 10.0             # Scale factor for inflating width in early stages
     
-    # Terminal cost
-    use_terminal_cost: bool  # Whether to use terminal cost
+    # Dynamics parameters (like in reference)
+    h: float = 0.01                             # time step (100 Hz)
+    eps: float = 0.0                            # noise parameter
+    sigma_tau: float = 0.01                     # control-dependent noise scaling
     
-    # Fitts' law parameters
-    use_fitts_law: bool  # Whether to use Fitts' law
-    fitts_a: float  # Fitts' law intercept
-    fitts_b: float  # Fitts' law slope
+    # Fitts' law parameters: MT = a + b * log2(2D/W)
+    fitts_a: float = 0.65                       # Intercept (seconds)
+    fitts_b: float = 0.12                       # Slope (seconds per bit)
+    use_fitts_law: bool = True                  # Whether to enforce Fitts' law constraint
     
-    # Gaussian reward parameters (if using gaussian_reward cost type)
-    width: List[float]  # Task width in each dimension
-    gauss_temperature: float  # Temperature for Gaussian reward
-    early_width_scale: float  # Early width scaling factor
-    discount_factor: float  # Discount factor for temporal weighting
-    
-    # Temporal scaling parameters
-    width_scaling_weight: float  # Weight for width-based scaling
-    
-    @classmethod
-    def default(cls) -> 'VanHallRewardParams3D':
-        """Create default Van Hall reward parameters."""
-        return cls(
-            # Time discretization
-            h=0.01,  # 10ms time step
-            
-            # Noise parameters
-            sigma_tau=0.1,
-            eps=1e-6,
-            
-            # Cost weights
-            ctrl_cost=1.0,
-            input_adapted_cost=1.0,
-            torque_derivative_cost=0.1,
-            distance_cost=10.0,
-            path_straightness_cost=1.0,
-            end_effector_covariance_cost=1.0,
-            endpoint_jerk_cost=0.01,
-            exp_dist_cost=1.0,
-            
-            # Cost type - use input_adapted as default
-            cost_type="input_adapted",
-            
-            # Scaling and normalization
-            rescale=1.0,
-            
-            # Terminal cost
-            use_terminal_cost=True,
-            
-            # Fitts' law parameters
-            use_fitts_law=False,
-            fitts_a=0.1,
-            fitts_b=0.15,
-            
-            # Gaussian reward parameters
-            width=[0.01, 0.01, 0.01],  # 1cm tolerance in each direction
-            gauss_temperature=2.0,
-            early_width_scale=3.0,
-            discount_factor=0.99,
-            
-            # Temporal scaling parameters
-            width_scaling_weight=1.0,
-        )
+    @staticmethod
+    def default():
+        return VanHallRewardParams3D()
+
+    def copy_with(self, **kwargs):
+        return replace(self, **kwargs)

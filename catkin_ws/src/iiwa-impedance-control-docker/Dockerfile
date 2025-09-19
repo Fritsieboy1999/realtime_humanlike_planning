@@ -10,7 +10,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 #Maintainer info 
-LABEL maintainer = "i.belli@tudelft.nl"
+LABEL maintainer="i.belli@tudelft.nl"
 
 ARG USERNAME=kuka_cor
 ARG USER_UID=1000
@@ -32,7 +32,12 @@ RUN apt-get update && apt-get install python-is-python3 && apt-get install cmake
 RUN apt-get install -y python3-pip && \
     apt-get install -y \
     ros-noetic-catkin  &&\
+    pip3 install --upgrade pip && \
     pip3 install catkin-tools
+
+# Configure pip for better download reliability
+RUN pip config set global.timeout 300 && \
+    pip config set global.retries 5
 
 
 #boost version fix
@@ -75,11 +80,14 @@ RUN apt-get install -y sudo\
 && chmod 0440 /etc/sudoers.d/$USERNAME \
 && rm -rf /var/lib/apt/lists/*
 
-# Build and install kuka_fri
-WORKDIR /kuka_dependencies/kuka_fri
-RUN ./waf configure && \
-    ./waf && \
-    ./waf install
+# Build and install kuka_fri (only if directory exists)
+RUN if [ -d "/kuka_dependencies/kuka_fri" ]; then \
+        cd /kuka_dependencies/kuka_fri/build/GNUMake && \
+        make && \
+        echo "kuka_fri built successfully"; \
+    else \
+        echo "kuka_fri not found - skipping (simulation mode)"; \
+    fi
 
 # Build and install SpaceVecAlg
 WORKDIR /kuka_dependencies/SpaceVecAlg
@@ -129,9 +137,29 @@ RUN pip install spatialmath-python==1.0.5
 
 RUN pip install matplotlib==3.7.5
 RUN pip install pygame==2.6.1
-RUN pip install pyyaml==6.0.2
-RUN pip install rospkg==1.6.0
-RUN pip install casadi==3.6.7
+RUN pip install --ignore-installed pyyaml==6.0.2
+RUN pip install --ignore-installed rospkg==1.6.0
+# Install casadi with extended timeout and fallback strategy
+RUN pip install --timeout=300 --retries=5 casadi==3.6.7 || \
+    (pip install --no-cache-dir --timeout=600 casadi==3.6.7) || \
+    (echo "Trying alternative casadi installation..." && pip install --timeout=300 casadi)
+
+# Install Pinocchio dependencies
+RUN apt-get update && apt-get install -y \
+    libeigen3-dev \
+    libboost-filesystem-dev \
+    libboost-system-dev \
+    libboost-python-dev \
+    libboost-test-dev \
+    liburdfdom-dev \
+    libassimp-dev \
+    libxml2-dev \
+    libxslt1-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Pinocchio Python package
+RUN pip install --timeout=300 --retries=5 pin==3.4.0 || \
+    pip install --timeout=300 --retries=5 pinocchio==3.4.0
 
 # python fix
 RUN apt-get update
