@@ -19,12 +19,11 @@ def main():
     # Default uses ["input_adapted", "path_straightness", "endpoint_jerk"]
     reward_params.use_fitts_law = True  # Disable Fitts' law for this example
     
-    # Initialize planner with warm start enabled
+    # Initialize planner
     planner = VanHallHumanReaching3D_Optimized(
         H=30,  # Reduced horizon
         reward_params=reward_params,
-        solver_type="mumps",  # Use MUMPS for smooth trajectories
-        use_prev_traj_warm_start=False  # Enable warm starting
+        solver_type="mumps"  # Use MUMPS for smooth trajectories
     )
     
     print("🎯 Demonstrating realistic warm start with sequential reaching tasks...")

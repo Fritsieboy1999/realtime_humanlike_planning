@@ -32,7 +32,7 @@ namespace cartesian_impedance_controller {
         std::string urdf_string, full_param;
         std::string robot_description = "robot_description";
         std::string base = "iiwa_link_0";
-        std::string end_effector = "dremel_tool_link_ee";
+        std::string end_effector = "iiwa_link_ee";
 
         // Gets the location of the robot description on the parameter server
         if (!nh.searchParam(robot_description, full_param)) {
@@ -52,7 +52,7 @@ namespace cartesian_impedance_controller {
         ROS_INFO_STREAM("Received urdf from param server, parsing...");
 
         // Get the end-effector
-        nh.param<std::string>("/CartesianImpedanceController/end_effector", end_effector, "dremel_tool_link_ee");
+        nh.param<std::string>("/CartesianImpedanceController/end_effector", end_effector, "iiwa_link_ee");
         ROS_INFO_STREAM("End-effector: " << end_effector);
 
         // Get URDF
@@ -70,7 +70,7 @@ namespace cartesian_impedance_controller {
         }
 
         // Get KDL Chain from base to end effector
-        if (not tree.getChain(base, "dremel_tool_link_ee", eef_chain)) {
+        if (not tree.getChain(base, end_effector, eef_chain)) {
             ROS_ERROR("Cannot find chain within URDF tree from base: %s to end effector: %s.", base.c_str(), end_effector.c_str());
         }
 
@@ -126,6 +126,11 @@ namespace cartesian_impedance_controller {
         action_server->registerGoalCallback(boost::bind(&CartesianImpedanceController::goalCallback, this));
         action_server->registerPreemptCallback(boost::bind(&CartesianImpedanceController::preemptCallback, this));
         action_server->start();
+        
+        // Add subscriber for real-time reference pose updates
+        reference_pose_sub = nh.subscribe("reference_pose", 10, &CartesianImpedanceController::refPoseCallback, this);
+        ROS_INFO("CartesianImpedanceController: Subscribed to reference_pose topic for real-time updates");
+        
         nh.param<double>("/CartesianTrajectoryGenerator/time_limit", time_limit, 2.0);
         nh.param<double>("/CartesianTrajectoryGenerator/goal_translation_tolerance", goal_translation_tolerance, 0.01);
         nh.param<double>("/CartesianTrajectoryGenerator/goal_rotation_tolerance", goal_rotation_tolerance, 0.5);

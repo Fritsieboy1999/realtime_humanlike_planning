@@ -1,5 +1,0 @@
-*.pyc
-*.swp
-CMakeLists.txt.user*
-*.autosave
-build/

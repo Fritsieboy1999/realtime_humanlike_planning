@@ -1,0 +1,80 @@
+<?xml version="1.0"?>
+<!--
+Launch file for IIWA planning interface with real robot.
+
+This launch file:
+1. Connects to the real IIWA robot
+2. Loads the cartesian impedance controller
+3. Starts the planning interface node
+4. Launches RViz for visualization
+-->
+<launch>
+    <!-- Arguments -->
+    <arg name="robot_name" default="iiwa"/>
+    <arg name="robot_ip" default="192.180.1.7"/>  <!-- Kuka7: 192.180.1.7, Kuka14: 192.180.1.14 -->
+    <arg name="rviz" default="true"/>
+    <arg name="safety_monitor" default="true"/>
+    <arg name="debug" default="false"/>
+    
+    <!-- Set use_sim_time parameter -->
+    <param name="use_sim_time" value="false"/>
+    
+    <!-- Print startup instructions -->
+    <node pkg="rostopic" type="rostopic" name="startup_info" 
+          args="echo -n 1 /rosout" output="screen">
+        <param name="message" value="🤖 REAL ROBOT MODE - Waiting for FRI connection..."/>
+    </node>
+    
+    <!-- Launch IIWA driver for real robot -->
+    <include file="$(find iiwa_driver)/launch/iiwa_bringup.launch">
+        <arg name="hardware_interface" value="effort"/>
+        <arg name="robot_name" value="$(arg robot_name)"/>
+        <arg name="model" value="7"/>
+        <arg name="robot_ip" value="$(arg robot_ip)"/>
+    </include>
+    
+    <!-- Wait for robot driver to be ready -->
+    <node pkg="rostopic" type="rostopic" name="wait_for_robot_driver" 
+          args="echo -n 1 /$(arg robot_name)/joint_states" output="log"/>
+    
+    <!-- Load and start the cartesian impedance controller -->
+    <include file="$(find iiwa_impedance_control)/launch/iiwa_impedance_control.launch">
+        <arg name="controller" value="CartesianImpedanceController"/>
+    </include>
+    
+    <!-- Start the planning interface node -->
+    <node name="iiwa_planning_interface" pkg="realtime_humanlike_planning" 
+          type="iiwa_planning_interface.py" output="screen" if="$(eval not arg('debug'))">
+        <param name="robot_name" value="$(arg robot_name)"/>
+        <param name="use_simulation" value="false"/>
+        <param name="controller_type" value="CartesianImpedanceController"/>
+    </node>
+    
+    <!-- Debug mode: launch planning interface with wrapper for better debugging -->
+    <node name="iiwa_planning_interface" pkg="realtime_humanlike_planning" 
+          type="iiwa_planning_interface_wrapper.py" output="screen" if="$(arg debug)">
+        <param name="robot_name" value="$(arg robot_name)"/>
+        <param name="use_simulation" value="false"/>
+        <param name="controller_type" value="CartesianImpedanceController"/>
+    </node>
+    
+    <!-- Launch RViz with custom configuration -->
+    <node if="$(arg rviz)" name="rviz" pkg="rviz" type="rviz" 
+          args="-d $(find realtime_humanlike_planning)/config/iiwa_planning.rviz" 
+          output="screen"/>
+    
+    <!-- Safety monitor (optional) -->
+    <node name="safety_monitor" pkg="realtime_humanlike_planning" 
+          type="safety_monitor.py" output="screen" if="$(arg safety_monitor)">
+        <param name="robot_name" value="$(arg robot_name)"/>
+        <param name="max_joint_velocity" value="2.0"/>
+        <param name="max_cartesian_velocity" value="1.0"/>
+    </node>
+    
+    <!-- Information -->
+    <node pkg="rostopic" type="rostopic" name="planning_interface_info"
+          args="echo -n 1 /rosout" output="log">
+        <param name="message" value="IIWA Planning Interface (Real Robot Mode) Started!"/>
+    </node>
+    
+</launch>

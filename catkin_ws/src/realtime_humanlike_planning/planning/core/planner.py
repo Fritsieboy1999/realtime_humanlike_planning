@@ -25,15 +25,7 @@ from parameters.tasks.default_task_3d import TaskParams3D
 
 
 class VanHallHumanReaching3D_Optimized:
-    """
-    Optimized version of VanHallHumanReaching3D with significant performance improvements:
-    1. Reduced horizon length (30 instead of 150)
-    2. Pre-built solver structure (built once, not per solve)
-    3. CasADi maps for vectorized operations
-    4. Frozen linearization for efficiency
-    5. Maintains full nonlinear dynamics for accuracy
-    6. Uses IPOPT with MUMPS linear solver for smooth human-like trajectories
-    """
+
     
     def __init__(self, 
                  H: int = 30,
@@ -42,23 +34,9 @@ class VanHallHumanReaching3D_Optimized:
                  cov_min: float = 1e-6,
                  nlp_opts: Optional[Dict] = None,
                  jitter: float = 1e-12,
-                 use_prev_traj_warm_start: bool = False,
                  solver_type: str = "mumps",
                  urdf_path: Optional[str] = None):
-        """
-        Initialize the optimized planner.
-        
-        Args:
-            H: Horizon length (reduced from 150 to 30 for speed)
-            reward_params: Reward parameters
-            robot_model: Robot model parameters
-            cov_min: Minimum covariance value
-            nlp_opts: Custom NLP solver options
-            jitter: Numerical jitter for stability
-            use_prev_traj_warm_start: Whether to use warm starting
-            solver_type: Solver type ("mumps", "ma27", "ma57")
-            urdf_path: Path to URDF file
-        """
+
         # Constants
         self.nq = 7   # 7 DOF robot
         self.NST = 14  # state vector [q1...q7, dq1...dq7]
@@ -70,27 +48,25 @@ class VanHallHumanReaching3D_Optimized:
         self.model = robot_model or KukaLBRIIWA7Model.default()
         self.cov_min = float(cov_min)
         self.jitter = float(jitter)
-        self.use_prev_traj_warm_start = bool(use_prev_traj_warm_start)
         self.solver_type = solver_type
         
-        # Warm starting capability
-        self.previous_solution = None
-        self.solution_cache = {}  # Cache solutions for similar tasks
-        
         # Initialize modules
-        self._init_modules(urdf_path)
+        self._init_modules()
         
         # Configure solver options
         self.nlp_opts = SolverOptions.get_solver_options(solver_type, nlp_opts)
         
+        
         # Pre-build solver structure (done once)
         self._build_solver_template()
     
-    def _init_modules(self, urdf_path: Optional[str]):
+    def _init_modules(self):
         """Initialize all planning modules."""
         # Initialize kinematics and dynamics
-        self.kinematics = RobotKinematics(urdf_path)
-        self.dynamics = RobotDynamics(self.kinematics, np.array(self.model.joint_damping))
+        self.kinematics = RobotKinematics()
+        # Use joint damping from URDF if available, otherwise fall back to model
+        joint_damping = getattr(self.kinematics, 'joint_damping', np.array(self.model.joint_damping))
+        self.dynamics = RobotDynamics(self.kinematics, joint_damping)
         
         # Initialize trajectory generator
         self.trajectory_generator = InitialTrajectoryGenerator(self.kinematics, self.dynamics)
@@ -102,13 +78,16 @@ class VanHallHumanReaching3D_Optimized:
             self.H, self.nq, self.NST, self.NGOAL
         )
         
-        # Initialize bounds computer
+        # Initialize bounds computer - use limits from URDF if available, otherwise fall back to model
+        joint_limits_lower = getattr(self.kinematics, 'joint_limits_lower', np.array(self.model.joint_limits_lower))
+        joint_limits_upper = getattr(self.kinematics, 'joint_limits_upper', np.array(self.model.joint_limits_upper))
+        joint_velocity_limits = getattr(self.kinematics, 'joint_velocity_limits', np.array(self.model.joint_velocity_limits))
+        joint_effort_limits = getattr(self.kinematics, 'joint_effort_limits', np.array(self.model.joint_effort_limits))
+        
         self.bounds_computer = BoundsComputer(
             self.H, self.nq, self.NST, self.NGOAL, self.cov_min,
-            np.array(self.model.joint_limits_lower),
-            np.array(self.model.joint_limits_upper),
-            np.array(self.model.joint_velocity_limits),
-            np.array(self.model.joint_effort_limits)
+            joint_limits_lower, joint_limits_upper,
+            joint_velocity_limits, joint_effort_limits
         )
         
         # Initialize Fitts' law
@@ -130,13 +109,14 @@ class VanHallHumanReaching3D_Optimized:
         w = ca.vertcat(ca.reshape(X, -1, 1), ca.reshape(C, -1, 1), ca.reshape(U, -1, 1))
 
         # Parameters (will be updated per solve)
-        p = ca.MX.sym('p', self.NST + self.NGOAL + self.nq*self.nq + self.nq*self.nq + 1 + 1)
+        p = ca.MX.sym('p', self.NST + self.NGOAL + self.nq*self.nq + self.nq*self.nq + 1 + 1 + self.NGOAL)
         xi0 = p[0:self.NST]  # Initial state
         goal = p[self.NST:self.NST+self.NGOAL]  # Goal position
         M_inv_vec = p[self.NST+self.NGOAL:self.NST+self.NGOAL+self.nq*self.nq]
         D_vec = p[self.NST+self.NGOAL+self.nq*self.nq:self.NST+self.NGOAL+2*self.nq*self.nq]
         fitts_duration = p[self.NST+self.NGOAL+2*self.nq*self.nq]  # Fitts' law duration
         task_width = p[self.NST+self.NGOAL+2*self.nq*self.nq+1]  # Task width parameter
+        start_ee_pos = p[self.NST+self.NGOAL+2*self.nq*self.nq+2:self.NST+self.NGOAL+2*self.nq*self.nq+2+self.NGOAL]  # Actual starting EE position
         M_inv = ca.reshape(M_inv_vec, self.nq, self.nq)
         D = ca.reshape(D_vec, self.nq, self.nq)
 
@@ -148,7 +128,7 @@ class VanHallHumanReaching3D_Optimized:
         g = self._build_dynamics_constraints(X, C, U, M_inv, D, h, sigma_tau)
         
         # Add other constraints
-        g.extend(self._build_other_constraints(X, C, U, xi0, goal, fitts_duration))
+        g.extend(self._build_other_constraints(X, C, U, xi0, goal, fitts_duration, start_ee_pos))
         
         # Stack all constraints
         g = ca.vertcat(*g)
@@ -216,7 +196,7 @@ class VanHallHumanReaching3D_Optimized:
         
         return [g_dynamics_flat]
     
-    def _build_other_constraints(self, X, C, U, xi0, goal, fitts_duration):
+    def _build_other_constraints(self, X, C, U, xi0, goal, fitts_duration, start_ee_pos=None):
         """Build other constraints (initial, final, etc.)."""
         g = []
         
@@ -262,13 +242,14 @@ class VanHallHumanReaching3D_Optimized:
             "rescale": self.rp.rescale,
         }
     
-    def solve(self, task: TaskParams3D, task_meta: Dict = None) -> SimpleNamespace:
+    def solve(self, task: TaskParams3D, task_meta: Dict = None, start_ee_pos: np.ndarray = None) -> SimpleNamespace:
         """
         Solve the NLP using pre-built solver template (major optimization).
         
         Args:
             task: Task parameters
             task_meta: Task metadata (distance, width, etc.)
+            start_ee_pos: Actual starting EE position (if None, computed from initial joint angles)
             
         Returns:
             Optimization result with cost analysis
@@ -313,6 +294,9 @@ class VanHallHumanReaching3D_Optimized:
         M = self.dynamics.compute_mass_matrix(q0)
         M_inv = np.linalg.inv(M + 0.2 * np.eye(self.nq))  # Add regularization
         D = np.diag(self.dynamics.joint_damping)
+        
+
+        start_ee_pos = np.asarray(start_ee_pos, dtype=float).reshape(self.NGOAL)
 
         # Combine parameters
         fitts_value = fitts_duration if fitts_duration is not None else 0.0
@@ -322,7 +306,8 @@ class VanHallHumanReaching3D_Optimized:
             M_inv.ravel(order='F'), 
             D.ravel(order='F'),
             np.array([fitts_value]),
-            np.array([width])
+            np.array([width]),
+            start_ee_pos
         ])
         
         # Create initial guess
@@ -331,18 +316,8 @@ class VanHallHumanReaching3D_Optimized:
         # Solve using pre-built solver
         sol = self.solver(p=p, x0=x0, **self.args_template)
         
-        # Extract solution and cache for warm starting
+        # Extract solution
         w_opt = np.array(sol['x']).squeeze()
-        self.previous_solution = w_opt.copy()
-        
-        # Cache solution for similar tasks
-        task_key = self._get_task_key(task)
-        self.solution_cache[task_key] = w_opt.copy()
-        
-        # Limit cache size
-        if len(self.solution_cache) > 10:
-            oldest_key = next(iter(self.solution_cache))
-            del self.solution_cache[oldest_key]
         
         # Parse solution
         result = self._parse_solution(w_opt)
@@ -358,15 +333,6 @@ class VanHallHumanReaching3D_Optimized:
         return result
     
     def _create_initial_guess(self, task: TaskParams3D, fitts_duration: Optional[float] = None) -> np.ndarray:
-        """Create initial guess for optimization."""
-        # Try warm starting if enabled
-        if self.use_prev_traj_warm_start and self.previous_solution is not None:
-            adapted = self.trajectory_generator.create_warm_start_from_previous(
-                self.previous_solution, task, self.H
-            )
-            if adapted is not None:
-                print("Using warm start from previous solution")
-                return adapted
         
         # Create simple initial guess
         x0 = self.trajectory_generator.create_simple_initial_guess(task, self.H, use_ik=True)
@@ -395,87 +361,14 @@ class VanHallHumanReaching3D_Optimized:
         res.dq = res.mu[self.nq:self.NST, :]
         res.t = np.arange(H) * self.rp.h
         
-        # Add end-effector positions
+        # Add end-effector positions using same FK as optimization constraints
         res.ee_positions = np.zeros((self.NGOAL, H))
         for i in range(H):
-            res.ee_positions[:, i] = np.array(self.kinematics.fwd_kin(res.q[:, i])).ravel()
+            # Use the same FK method as the optimization constraints for consistency
+            ee_pos_internal = np.array(self.kinematics.fwd_kin(res.q[:, i])).ravel()
+            # Transform to controller frame for display/interface consistency
+            ee_pos_controller = self.kinematics.transform_to_controller_frame(ee_pos_internal)
+            res.ee_positions[:, i] = ee_pos_controller
 
         return res
     
-    def _get_task_key(self, task: TaskParams3D) -> str:
-        """Generate a key for task similarity matching."""
-        q0 = task.xi0[:7]
-        goal = task.goal
-        return str(hash((tuple(np.round(q0, 2)), tuple(np.round(goal, 2)))))
-    
-    def plot_temporal_scaling_analysis(self, result: SimpleNamespace, task_params: TaskParams3D, 
-                                     save_path: Optional[str] = None, show_plot: bool = False):
-        """Plot temporal scaling analysis."""
-        import matplotlib.pyplot as plt
-        
-        if not hasattr(result, 'cost_terms') or 'temporal_scaling' not in result.cost_terms:
-            raise ValueError("Result must contain temporal_scaling data. Run solve() first.")
-        
-        scaling_data = result.cost_terms['temporal_scaling']
-        
-        # Create subplots
-        fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(14, 10))
-        
-        time_steps = scaling_data['time_steps']
-        
-        # Plot 1: Temporal scaling values over time
-        ax1.plot(time_steps, scaling_data['scaling_values'], 'b-', linewidth=2, label='Scaling Factor')
-        ax1.set_xlabel('Time (s)')
-        ax1.set_ylabel('Scaling Factor s(t)')
-        ax1.set_title(f'Temporal Scaling Evolution (Width={scaling_data["task_width"]:.3f})')
-        ax1.grid(True, alpha=0.3)
-        ax1.set_ylim(0, 1.1)
-        
-        # Add text annotation
-        d_scale = scaling_data.get('d_scale', 'N/A')
-        A_scale = scaling_data.get('A_scale', 'N/A')
-        equation_text = (f'$s(t) = 1 - A \\cdot \\frac{{t^d \\cdot (1-t)^{{1/d}}}}{{B(d+1, 1/d+1)}}$\n'
-                        f'A={A_scale:.3f}, d={d_scale:.3f}')
-        ax1.text(0.05, 0.95, equation_text, transform=ax1.transAxes, 
-                bbox=dict(boxstyle="round,pad=0.3", facecolor="lightblue", alpha=0.7),
-                fontsize=9)
-        
-        # Plot 2: Control input changes over time
-        ax2.plot(time_steps, scaling_data['control_changes'], 'r-', linewidth=2)
-        ax2.set_xlabel('Time (s)')
-        ax2.set_ylabel('Control Input Change Magnitude')
-        ax2.set_title('Control Input Changes Over Time')
-        ax2.grid(True, alpha=0.3)
-        
-        # Plot 3: Scaled costs over time
-        ax3.plot(time_steps, scaling_data['scaled_costs'], 'g-', linewidth=2)
-        ax3.set_xlabel('Time (s)')
-        ax3.set_ylabel('Scaled Cost Contribution')
-        ax3.set_title('Temporal Scaled Cost Contributions')
-        ax3.grid(True, alpha=0.3)
-        
-        total_cost = scaling_data['total_scaled_cost']
-        ax3.text(0.05, 0.95, f'Total Scaled Cost: {total_cost:.6f}', 
-                transform=ax3.transAxes,
-                bbox=dict(boxstyle="round,pad=0.3", facecolor="lightgreen", alpha=0.7))
-        
-        # Plot 4: Scaling factor vs normalized time step
-        step_norm = scaling_data['step_normalized']
-        ax4.plot(step_norm, scaling_data['scaling_values'], 'purple', linewidth=2, marker='o', markersize=4)
-        ax4.set_xlabel('Normalized Time Step')
-        ax4.set_ylabel('Scaling Factor s(t)')
-        ax4.set_title('Scaling Factor vs Normalized Time')
-        ax4.grid(True, alpha=0.3)
-        ax4.set_xlim(0, 1)
-        ax4.set_ylim(0, 1.1)
-        
-        plt.tight_layout()
-        
-        if save_path:
-            plt.savefig(save_path, dpi=300, bbox_inches='tight')
-            print(f"Temporal scaling analysis plot saved to {save_path}")
-        
-        if show_plot:
-            plt.show()
-            
-        return fig

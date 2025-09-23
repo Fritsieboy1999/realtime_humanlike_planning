@@ -46,8 +46,24 @@ class RobotDynamics:
         Returns:
             Mass matrix (7x7)
         """
+        if self.kinematics.pin_model is None:
+            # Fallback to identity matrix if Pinocchio is not available
+            print("⚠️ Using identity mass matrix (Pinocchio disabled)")
+            return np.eye(self.nq)
+            
         q_np = np.array(q, dtype=float).reshape(-1)
-        pin.computeAllTerms(self.kinematics.pin_model, self.kinematics.pin_data, q_np, np.zeros(self.nq))
+        
+        # Try different Pinocchio API versions
+        try:
+            pin.computeAllTerms(self.kinematics.pin_model, self.kinematics.pin_data, q_np, np.zeros(self.nq))
+        except AttributeError:
+            # Try alternative API
+            try:
+                pin.crba(self.kinematics.pin_model, self.kinematics.pin_data, q_np)
+            except AttributeError:
+                print("⚠️ Using identity mass matrix (Pinocchio API incompatible)")
+                return np.eye(self.nq)
+                
         return np.array(self.kinematics.pin_data.M)
     
     def _init_frozen_linearization(self):

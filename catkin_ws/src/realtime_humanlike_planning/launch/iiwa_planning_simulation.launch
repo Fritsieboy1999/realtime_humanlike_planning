@@ -1,0 +1,70 @@
+<?xml version="1.0"?>
+<!--
+Launch file for IIWA planning interface with Gazebo simulation.
+
+This launch file:
+1. Starts Gazebo simulation with IIWA robot
+2. Loads the cartesian impedance controller
+3. Starts the planning interface node
+4. Launches RViz for visualization
+-->
+<launch>
+    <!-- Arguments -->
+    <arg name="robot_name" default="iiwa"/>
+    <arg name="model" default="7"/>
+    <arg name="gui" default="true"/>
+    <arg name="rviz" default="true"/>
+    <arg name="debug" default="false"/>
+    <arg name="paused" default="false"/>
+    
+    <!-- Set use_sim_time parameter -->
+    <param name="use_sim_time" value="true"/>
+    
+    <!-- Launch Gazebo with IIWA -->
+    <include file="$(find iiwa_gazebo)/launch/iiwa_gazebo.launch">
+        <arg name="robot_name" value="$(arg robot_name)"/>
+        <arg name="model" value="$(arg model)"/>
+        <arg name="controller" value="TorqueController"/>
+        <arg name="gui" value="$(arg gui)"/>
+        <arg name="paused" value="$(arg paused)"/>
+    </include>
+    
+    <!-- Wait for Gazebo to fully load -->
+    <node pkg="rosservice" type="rosservice" name="wait_for_gazebo" 
+          args="wait /gazebo/get_physics_properties" output="screen"/>
+    
+    <!-- Load impedance controller configuration -->
+    <rosparam file="$(find iiwa_impedance_control)/config/iiwa_impedance_control.yaml" command="load" ns="/iiwa"/>
+    
+    <!-- Use the controller switching script to properly switch from TorqueController to CartesianImpedanceController -->
+    <node name="switch_to_impedance_controller" pkg="realtime_humanlike_planning" type="switch_controllers.py" 
+          respawn="false" output="screen" launch-prefix="bash -c 'sleep 3; $0 $@'"/>
+    
+    <!-- Start the planning interface node -->
+    <node name="iiwa_planning_interface" pkg="realtime_humanlike_planning" 
+          type="iiwa_planning_interface.py" output="screen" if="$(eval not arg('debug'))">
+        <param name="robot_name" value="$(arg robot_name)"/>
+        <param name="use_simulation" value="true"/>
+        <param name="controller_type" value="CartesianImpedanceController"/>
+    </node>
+    
+    <!-- Debug mode: launch planning interface with wrapper for better debugging -->
+    <node name="iiwa_planning_interface" pkg="realtime_humanlike_planning" 
+          type="iiwa_planning_interface_wrapper.py" output="screen" if="$(arg debug)">
+        <param name="robot_name" value="$(arg robot_name)"/>
+        <param name="use_simulation" value="true"/>
+        <param name="controller_type" value="CartesianImpedanceController"/>
+    </node>
+    
+    <!-- Launch RViz with custom configuration -->
+    <node if="$(arg rviz)" name="rviz" pkg="rviz" type="rviz" 
+          args="-d $(find realtime_humanlike_planning)/config/iiwa_planning.rviz" 
+          output="screen"/>
+    
+    <!-- Information -->
+    <node pkg="rostopic" type="rostopic" name="planning_interface_info"
+          args="echo -n 1 /rosout" output="log">
+        <param name="message" value="IIWA Planning Interface (Simulation Mode) Started!"/>
+    </node>
+    
+</launch>

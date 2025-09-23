@@ -104,7 +104,7 @@ class TemporalScaling:
     def compute_dynamic_scaling_parameters(task_width: Union[float, ca.MX, ca.DM],
                                          min_width: float = 0.005,
                                          max_width: float = 0.03,
-                                         left_minimum: float = 0.3,
+                                         left_minimum: float = 0.26,
                                          right_minimum: float = 1.0) -> tuple[Union[float, ca.MX, ca.DM], Union[float, ca.MX, ca.DM]]:
         """
         Compute dynamic scaling parameters based on task width.

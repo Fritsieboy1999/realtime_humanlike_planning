@@ -30,15 +30,6 @@ class VanHallRewardParams3D:
     end_effector_covariance_cost: float = 1.0   # end effector covariance penalty weight (when "end_effector_covariance" in cost_type)
     endpoint_jerk_cost: float = 1e-6            # endpoint jerk penalty weight (when "endpoint_jerk" in cost_type)
     
-    # New discounted Gaussian reward parameters
-    exp_dist_cost: float = 0.1
-    discount_factor: float = 0.99               # Time discount factor (0.99 = 1% discount per step)
-    width: np.ndarray = field(default_factory=lambda: np.array([0.01, 0.01, 0.01]))  # Task width matrix diagonal
-    
-    # Enhanced Gaussian reward parameters with temperature softening
-    gauss_temperature: float = 10.0             # Temperature for softening early reward (tau >= 1.0)
-    early_width_scale: float = 10.0             # Scale factor for inflating width in early stages
-    
     # Dynamics parameters (like in reference)
     h: float = 0.01                             # time step (100 Hz)
     eps: float = 0.0                            # noise parameter

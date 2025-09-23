@@ -62,11 +62,8 @@ class BoundsComputer:
     def compute_variable_bounds(self) -> Tuple[ca.DM, ca.DM]:
         """
         Compute bounds for decision variables [X, C, U].
-        
-        Returns:
-            lbx: Lower bounds for decision variables
-            ubx: Upper bounds for decision variables
         """
+        
         # Total number of variables: X (NST*H) + C (NST*H) + U (nq*H)
         nx_tot = self.NST * self.H + self.NST * self.H + self.nq * self.H
         
@@ -117,12 +114,13 @@ class BoundsComputer:
         n_ic = self.NST               # Initial condition
         n_ic_cov = self.NST           # Initial covariance
         n_ic_input = self.nq          # Initial control constraint (zero input at start)
+        n_initial_ee = 0              # Initial EE position constraint - REMOVED per user request
         n_final_pos = self.NGOAL      # Final position constraint
         n_final_vel = self.nq         # Final velocity constraint
         n_fitts = 1                   # Fitts' law time constraint (always present, conditionally active)
         n_pos = self.NST * self.H     # Covariance positivity
         
-        ng_tot = n_dyn + n_ic + n_ic_cov + n_ic_input + n_final_pos + n_final_vel + n_fitts + n_pos
+        ng_tot = n_dyn + n_ic + n_ic_cov + n_ic_input + n_initial_ee + n_final_pos + n_final_vel + n_fitts + n_pos
         
         lbg = ca.DM.zeros(ng_tot, 1)
         ubg = ca.DM.zeros(ng_tot, 1)
@@ -137,7 +135,7 @@ class BoundsComputer:
         ubg[ic_input_start:ic_input_start + n_ic_input] = 0
 
         # Final position constraint bounds (exact)
-        pos_start = ic_input_start + n_ic_input
+        pos_start = ic_input_start + n_ic_input + n_initial_ee  # n_initial_ee is now 0
         lbg[pos_start:pos_start + n_final_pos] = 0
         ubg[pos_start:pos_start + n_final_pos] = 0
 

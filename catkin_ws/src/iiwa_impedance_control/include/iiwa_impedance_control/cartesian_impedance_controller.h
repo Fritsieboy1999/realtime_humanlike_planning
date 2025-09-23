@@ -101,6 +101,7 @@ namespace cartesian_impedance_controller {
         ros::Publisher trajectory_pub;
         ros::Publisher commanded_torque_pub;
         ros::Publisher cartesian_wrench_pub;
+        ros::Subscriber reference_pose_sub;
 
         KDL::Chain iiwa_chain;
         KDL::Chain eef_chain;

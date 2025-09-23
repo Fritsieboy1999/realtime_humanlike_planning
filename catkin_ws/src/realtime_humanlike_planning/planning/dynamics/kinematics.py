@@ -12,6 +12,7 @@ import pinocchio as pin
 from typing import Optional, Tuple
 
 
+
 class RobotKinematics:
     """
     Robot kinematics handler with both symbolic and numeric implementations.
@@ -26,46 +27,98 @@ class RobotKinematics:
         """
         self.nq = 7  # 7 DOF robot
         
+        # Initialize attributes
+        self.pin_model = None
+        self.pin_data = None
+        self.ee_frame_id = None
+        
         # Initialize Pinocchio model
-        self._init_pinocchio_model(urdf_path)
+        self._init_pinocchio_model()
         
         # Initialize symbolic kinematics
         self._init_symbolic_kinematics()
     
-    def _init_pinocchio_model(self, urdf_path: Optional[str] = None):
-        """Initialize Pinocchio model from URDF."""
-        if urdf_path is None:
-            # Default URDF path
-            repo_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-            urdf_path = os.path.join(repo_root, "parameters", "dynamics", "lbr_iiwa7_r800.urdf")
-        
-        if not os.path.isfile(urdf_path):
-            raise FileNotFoundError(f"URDF not found at: {urdf_path}")
-
-        # Use the correct Pinocchio API - try multiple approaches
-        try:
-            # Try the most common API first
-            self.pin_model = pin.buildModelFromUrdf(urdf_path)
-        except AttributeError:
-            try:
-                # Try alternative buildModelsFromUrdf (returns model, collision_model, visual_model)
-                self.pin_model, _, _ = pin.buildModelsFromUrdf(urdf_path)
-            except AttributeError:
-                try:
-                    # Try RobotWrapper approach
-                    from pinocchio.robot_wrapper import RobotWrapper
-                    robot = RobotWrapper.BuildFromURDF(urdf_path)
-                    self.pin_model = robot.model
-                except ImportError:
-                    raise ImportError("Unable to load URDF with available Pinocchio API")
-        
-        self.pin_data = self.pin_model.createData()
-
-        try:
-            self.ee_frame_id = self.pin_model.getFrameId("link7")
-        except Exception:
-            self.ee_frame_id = None
     
+    def _init_pinocchio_model(self):
+        """Initialize Pinocchio model from ROS parameter server URDF."""
+        import os
+        import tempfile
+        import rospy
+        
+        if not rospy.has_param('/robot_description'):
+            raise RuntimeError("URDF not found on ROS parameter server at '/robot_description'")
+        
+        urdf_string = rospy.get_param('/robot_description')
+
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.urdf', delete=False) as f:
+            f.write(urdf_string)
+            temp_urdf_path = f.name
+        
+        self.pin_model = pin.buildModelFromUrdf(temp_urdf_path)
+        self.pin_data = self.pin_model.createData()
+        
+        # Extract joint limits and damping from URDF
+        self.joint_limits_lower, self.joint_limits_upper, self.joint_velocity_limits, self.joint_effort_limits = self._extract_joint_limits(urdf_string)
+        self.joint_damping = self._get_joint_damping()
+        
+        os.unlink(temp_urdf_path)
+        
+        self.ee_frame_id = self.pin_model.getFrameId("iiwa_link_ee")
+
+    def _extract_joint_limits(self, urdf_string: str):
+        """Extract joint limits from URDF string."""
+        import xml.etree.ElementTree as ET
+        
+        try:
+            root = ET.fromstring(urdf_string)
+            joints = root.findall(".//joint[@type='revolute']")
+            
+            lower_limits = []
+            upper_limits = []
+            velocity_limits = []
+            effort_limits = []
+            
+            for joint in joints:
+                joint_name = joint.attrib.get("name", "unknown")
+                limit_elem = joint.find("limit")
+                if limit_elem is None:
+                    raise ValueError(f"Joint {joint_name} missing <limit> element")
+                
+                # Extract limits - fail if any attribute is missing
+                if "lower" not in limit_elem.attrib:
+                    raise ValueError(f"Joint {joint_name} missing 'lower' limit")
+                if "upper" not in limit_elem.attrib:
+                    raise ValueError(f"Joint {joint_name} missing 'upper' limit")
+                if "velocity" not in limit_elem.attrib:
+                    raise ValueError(f"Joint {joint_name} missing 'velocity' limit")
+                if "effort" not in limit_elem.attrib:
+                    raise ValueError(f"Joint {joint_name} missing 'effort' limit")
+                
+                lower_limits.append(float(limit_elem.attrib["lower"]))
+                upper_limits.append(float(limit_elem.attrib["upper"]))
+                velocity_limits.append(float(limit_elem.attrib["velocity"]))
+                effort_limits.append(float(limit_elem.attrib["effort"]))
+            
+            if len(lower_limits) == 7:
+                print(f"Extracted joint limits from URDF")
+                return (np.array(lower_limits), np.array(upper_limits), 
+                       np.array(velocity_limits), np.array(effort_limits))
+            else:
+                print(f"Expected 7 joints, found {len(lower_limits)}, using defaults")
+                raise ValueError("Unexpected number of joints")
+                
+        except Exception as e:
+            raise RuntimeError(f"Failed to extract joint limits from URDF: {e}. URDF must contain valid joint limits.")
+
+    def _get_joint_damping(self) -> np.ndarray:
+        """Get joint damping: 0.002 * effort_limits, fallback to 0.5 for all joints."""
+        try:
+            # Primary: Use 0.002 * joint effort limits from URDF
+            return 0.002 * self.joint_effort_limits
+        except Exception:
+            # Backup: Use 0.5 for all 7 joints
+            return np.array([0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5])
+
     def _init_symbolic_kinematics(self):
         """Initialize symbolic kinematics using CasADi."""
         q_sym = ca.MX.sym("q", self.nq)
@@ -80,28 +133,51 @@ class RobotKinematics:
         pin.forwardKinematics(self.pin_model, self.pin_data, q)
         pin.updateFramePlacements(self.pin_model, self.pin_data)
         
-        if self.ee_frame_id is not None:
-            T = self.pin_data.oMf[self.ee_frame_id]
-        else:
-            T = self.pin_data.oMi[-1]  # Last joint frame
-        
+        T = self.pin_data.oMf[self.ee_frame_id]
         return T.translation
-    
+
     def compute_jacobian_numeric(self, q: np.ndarray) -> np.ndarray:
         """Compute Jacobian using Pinocchio (numeric)."""
         q = np.asarray(q, dtype=float).reshape(-1)
         pin.forwardKinematics(self.pin_model, self.pin_data, q)
         pin.updateFramePlacements(self.pin_model, self.pin_data)
         
-        if self.ee_frame_id is not None:
-            J = pin.computeFrameJacobian(
-                self.pin_model, self.pin_data, q, self.ee_frame_id, pin.LOCAL_WORLD_ALIGNED
-            )
-        else:
-            J = pin.computeJointJacobians(self.pin_model, self.pin_data, q)
-            J = self.pin_data.J[-1]  # Last joint Jacobian
-            
+        J = pin.computeFrameJacobian(
+            self.pin_model, self.pin_data, q, self.ee_frame_id, pin.LOCAL_WORLD_ALIGNED
+        )
+        
         return J[:3, :]  # Return only position part (3x7)
+    
+    def transform_to_controller_frame(self, pos: np.ndarray) -> np.ndarray:
+        """
+        Transform position from planner's coordinate frame to controller's coordinate frame.
+        
+        This handles the coordinate frame differences between the planner's FK implementation
+        and the controller's FK implementation.
+        
+        Args:
+            pos: Position in planner's frame [x, y, z]
+            
+        Returns:
+            Position in controller's frame [x, y, z]
+        """
+        pos = np.asarray(pos).flatten()
+
+        return np.array([pos[0], -pos[1], pos[2]])
+    
+    def transform_from_controller_frame(self, pos: np.ndarray) -> np.ndarray:
+        """
+        Transform position from controller's coordinate frame to planner's coordinate frame.
+        
+        Args:
+            pos: Position in controller's frame [x, y, z]
+            
+        Returns:
+            Position in planner's frame [x, y, z]
+        """
+        pos = np.asarray(pos).flatten()
+
+        return np.array([pos[0], -pos[1], pos[2]])
     
     def forward_kinematics_symbolic(self, q):
         """URDF-based forward kinematics using CasADi (symbolic)."""
@@ -184,6 +260,12 @@ class RobotKinematics:
         T = T @ T56 @ self._homog(Rz6, ca.DM([0, 0, 0]))
         T = T @ T67 @ self._homog(Rz7, ca.DM([0, 0, 0]))
 
+        # Add transformation from iiwa_link_7 to iiwa_link_ee (found in URDF)
+        # <origin xyz="0 0 0.045" rpy="0 0 0"/>
+        # T_7_to_ee = self._trans(0.0, 0.0, 0.045)
+        # T = T @ T_7_to_ee
+
+        # Extract position - now matches iiwa_link_ee frame like Pinocchio/KDL
         return T[0:3, 3]
     
     def solve_ik(self, goal_xyz: np.ndarray, q_init: np.ndarray, 

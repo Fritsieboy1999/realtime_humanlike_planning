@@ -12,7 +12,7 @@ CartesianImpedanceController:
     - iiwa_joint_5
     - iiwa_joint_6
     - iiwa_joint_7
-  end_effector: dremel_tool_link_ee
+  end_effector: iiwa_link_ee
 
 JointImpedanceController:
   type: joint_impedance_controller/JointImpedanceController
@@ -31,7 +31,7 @@ CartesianTrajectoryGenerator:
   goal_rotation_tolerance: 0.5 # [rad]
 
 JointTrajectoryGenerator:
-  time_limit: 1.5 # [%]
+  time_limit: 5.0 # [%] - Allow longer execution times for complex trajectories
   goal_tolerance:
     - 0.01 # [rad]
     - 0.01 # [rad]
