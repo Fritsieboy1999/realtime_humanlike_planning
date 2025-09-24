@@ -14,11 +14,11 @@ class VanHallRewardParams3D:
     """Van Hall 3D reward parameters for human-like reaching with terminal covariance penalty."""
     
     # Terminal cost parameters
-    rescale: float = 1000.0                     # scaling factor for terminal cost
+    rescale: float = 500.0                     # scaling factor for terminal cost
     use_terminal_cost: bool = True              # whether to include terminal covariance penalty
     
     # Running cost type and parameters - can be a string or list of strings for combinations
-    cost_type: Union[str, List[str]] = field(default_factory=lambda: ["input_adapted", "path_straightness", "endpoint_jerk"])  # "input", "input_adapted", "distance", "path_straightness", "gaussian_reward", "torque_derivative", "end_effector_covariance", "endpoint_jerk", or list for combinations
+    cost_type: Union[str, List[str]] = field(default_factory=lambda: ["input_adapted", "path_straightness"])  # Available: "input_adapted", "path_straightness", "endpoint_jerk"
     ctrl_cost: float = 0.00001                  # control effort penalty (when "input" in cost_type)
     torque_derivative_cost: float = 0.0001      # torque derivative penalty (when "torque_derivative" in cost_type)
     input_adapted_cost: float = 0.0005          # adapted input cost scaling factor (when "input_adapted" in cost_type)

@@ -142,12 +142,22 @@ class CostFunctions:
                           cost_types: List[str], cost_params: Dict[str, float],
                           h: float) -> ca.MX:
 
-        # Add all cost components together
-        total_cost = (
-            self.input_adapted_cost(X, C, U, task_width, cost_params.get("input_adapted_cost", 1.0)) +
-            self.path_straightness_cost(X, xi0, goal, cost_params.get("path_straightness_cost", 1.0)) +
-            self.endpoint_jerk_cost(X, h, cost_params.get("endpoint_jerk_cost", 1.0)) +
-            self.terminal_covariance_cost(X, C, task_width, cost_params.get("rescale", 1.0))
-        )
+        # Initialize total cost
+        total_cost = 0
+        
+        # Add running costs based on enabled cost types (only the 4 properly implemented ones)
+        for cost_type in cost_types:
+            if cost_type == "input_adapted":
+                total_cost += self.input_adapted_cost(X, C, U, task_width, cost_params.get("input_adapted_cost", 1.0))
+                
+            elif cost_type == "path_straightness":
+                total_cost += self.path_straightness_cost(X, xi0, goal, cost_params.get("path_straightness_cost", 1.0))
+                
+            elif cost_type == "endpoint_jerk":
+                total_cost += self.endpoint_jerk_cost(X, h, cost_params.get("endpoint_jerk_cost", 1.0))
+                
+        # Always add terminal covariance cost if enabled
+        if cost_params.get("use_terminal_cost", True):
+            total_cost += self.terminal_covariance_cost(X, C, task_width, cost_params.get("rescale", 1.0))
         
         return total_cost

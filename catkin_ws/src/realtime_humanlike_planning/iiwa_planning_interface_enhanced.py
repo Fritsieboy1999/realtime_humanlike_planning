@@ -557,10 +557,19 @@ class EnhancedIIWAPlanningInterface:
         rospy.loginfo(f"🎯 DEBUG: Z-plane target: {target_pos}")
         rospy.loginfo(f"📏 DEBUG: Current EE: {self.current_ee_pose}")
         
+        # Transform target position to planner frame (same as goal planning does)
+        target_planner_frame = target_pos
+        if hasattr(self.planner, 'kinematics') and hasattr(self.planner.kinematics, 'transform_from_controller_frame'):
+            try:
+                target_planner_frame = self.planner.kinematics.transform_from_controller_frame(target_pos)
+                rospy.loginfo(f"🔄 DEBUG: Z-plane target transformed from {target_pos} to {target_planner_frame}")
+            except Exception as e:
+                rospy.logwarn(f"⚠️ Could not transform z-plane target position: {e}")
+        
         task_params = TaskParams3D.create_reaching_task(
             q_start=joint_positions,
             dq_start=joint_velocities,
-            goal_position=target_pos,
+            goal_position=target_planner_frame,
             width=self.goal_width
         )
         

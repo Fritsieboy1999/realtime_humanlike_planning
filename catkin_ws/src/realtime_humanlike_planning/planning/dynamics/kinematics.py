@@ -152,35 +152,37 @@ class RobotKinematics:
         """
         Transform position from planner's coordinate frame to controller's coordinate frame.
         
-        This handles the coordinate frame differences between the planner's FK implementation
-        and the controller's FK implementation.
+        DIAGNOSTIC FINDING: No transform needed! Pinocchio FK already matches TF perfectly.
+        The Y-flip was incorrectly added and causes coordinate discrepancy.
         
         Args:
             pos: Position in planner's frame [x, y, z]
             
         Returns:
-            Position in controller's frame [x, y, z]
+            Position in controller's frame [x, y, z] (no transformation applied)
         """
         pos = np.asarray(pos).flatten()
-
-        return np.array([pos[0], -pos[1], pos[2]])
+        # FIXED: Return position without Y-flip - frames are already consistent
+        return pos.copy()
     
     def transform_from_controller_frame(self, pos: np.ndarray) -> np.ndarray:
         """
         Transform position from controller's coordinate frame to planner's coordinate frame.
         
+        DIAGNOSTIC FINDING: No transform needed! Controller and planner frames are identical.
+        
         Args:
             pos: Position in controller's frame [x, y, z]
             
         Returns:
-            Position in planner's frame [x, y, z]
+            Position in planner's frame [x, y, z] (no transformation applied)
         """
         pos = np.asarray(pos).flatten()
-
-        return np.array([pos[0], -pos[1], pos[2]])
+        # FIXED: Return position without Y-flip - frames are already consistent
+        return pos.copy()
     
     def forward_kinematics_symbolic(self, q):
-        """URDF-based forward kinematics using CasADi (symbolic)."""
+        """URDF-based forward kinematics using CasADi (symbolic) - now corrected."""
         return self._forward_kinematics_accurate_urdf(q)
     
     def _rot_x(self, a):
@@ -229,28 +231,56 @@ class RobotKinematics:
         return self._homog(ca.DM(np.eye(3)), ca.DM([x, y, z]))
 
     def _forward_kinematics_accurate_urdf(self, q):
-        """URDF-based forward kinematics implementation."""
-        T01 = self._trans(0.0, 0.0, 0.3375) @ self._homog(self._rot_rpy(0.0, 0.0, 0.0), ca.DM([0, 0, 0]))
-        Rz1 = self._rot_z(-q[0])
+        """
+        URDF-based forward kinematics implementation - CORRECTED to match actual URDF values.
+        
+        Fixed based on URDF analysis:
+        - Joint 1: xyz="0 0 0.15" (not 0.3375)
+        - Joint 2: xyz="0 0 0.19" rpy="π/2 0 π" 
+        - Joint 3: xyz="0 0.21 0" rpy="π/2 0 π"
+        - Joint 4: xyz="0 0 0.19" rpy="π/2 0 0"
+        - Joint 5: xyz="0 0.21 0" rpy="-π/2 π 0"
+        - Joint 6: xyz="0 0.06070 0.19" rpy="π/2 0 0"
+        - Joint 7: xyz="0 0.081 0.06070" rpy="-π/2 π 0"
+        """
+        # CORRECTED VALUES FROM URDF ANALYSIS:
+        
+        # Joint 1: iiwa_joint_1 - base to link1
+        # URDF: xyz="0 0 0.15" rpy="0 0 0", axis="0 0 1"
+        T01 = self._trans(0.0, 0.0, 0.15) @ self._homog(self._rot_rpy(0.0, 0.0, 0.0), ca.DM([0, 0, 0]))
+        Rz1 = self._rot_z(q[0])  # Positive rotation as per URDF axis
 
-        T12 = self._trans(0.0, 0.0, 0.0) @ self._homog(self._rot_rpy(-1.5708, 0.0, 0.0), ca.DM([0, 0, 0]))
+        # Joint 2: iiwa_joint_2 
+        # URDF: xyz="0 0 0.19" rpy="1.5708 0 3.1416", axis="0 0 1"  
+        T12 = self._trans(0.0, 0.0, 0.19) @ self._homog(self._rot_rpy(1.5708, 0.0, 3.1416), ca.DM([0, 0, 0]))
         Rz2 = self._rot_z(q[1])
 
-        T23 = self._trans(0.0, -0.3993, 0.0) @ self._homog(self._rot_rpy(1.5708, 0.0, 0.0), ca.DM([0, 0, 0]))
-        Rz3 = self._rot_z(-q[2])
+        # Joint 3: iiwa_joint_3
+        # URDF: xyz="0 0.21 0" rpy="1.5708 0 3.1416", axis="0 0 1"
+        T23 = self._trans(0.0, 0.21, 0.0) @ self._homog(self._rot_rpy(1.5708, 0.0, 3.1416), ca.DM([0, 0, 0]))
+        Rz3 = self._rot_z(q[2])
 
-        T34 = self._trans(0.0, 0.0, 0.0) @ self._homog(self._rot_rpy(-1.5708, 0.0, 0.0), ca.DM([0, 0, 0]))
-        Rz4 = self._rot_z(-q[3])
+        # Joint 4: iiwa_joint_4
+        # URDF: xyz="0 0 0.19" rpy="1.5708 0 0", axis="0 0 1"
+        T34 = self._trans(0.0, 0.0, 0.19) @ self._homog(self._rot_rpy(1.5708, 0.0, 0.0), ca.DM([0, 0, 0]))
+        Rz4 = self._rot_z(q[3])
 
-        T45 = self._trans(0.0, -0.3993, 0.0) @ self._homog(self._rot_rpy(1.5708, 0.0, 0.0), ca.DM([0, 0, 0]))
-        Rz5 = self._rot_z(-q[4])
+        # Joint 5: iiwa_joint_5
+        # URDF: xyz="0 0.21 0" rpy="-1.5708 3.1416 0", axis="0 0 1"
+        T45 = self._trans(0.0, 0.21, 0.0) @ self._homog(self._rot_rpy(-1.5708, 3.1416, 0.0), ca.DM([0, 0, 0]))
+        Rz5 = self._rot_z(q[4])
 
-        T56 = self._trans(0.0, 0.0, 0.0) @ self._homog(self._rot_rpy(-1.5708, 0.0, 0.0), ca.DM([0, 0, 0]))
+        # Joint 6: iiwa_joint_6
+        # URDF: xyz="0 0.06070 0.19" rpy="1.5708 0 0", axis="0 0 1"
+        T56 = self._trans(0.0, 0.06070, 0.19) @ self._homog(self._rot_rpy(1.5708, 0.0, 0.0), ca.DM([0, 0, 0]))
         Rz6 = self._rot_z(q[5])
 
-        T67 = self._trans(0.0, -0.126, 0.0) @ self._homog(self._rot_rpy(1.5708, 0.0, 0.0), ca.DM([0, 0, 0]))
+        # Joint 7: iiwa_joint_7
+        # URDF: xyz="0 0.081 0.06070" rpy="-1.5708 3.1416 0", axis="0 0 1"
+        T67 = self._trans(0.0, 0.081, 0.06070) @ self._homog(self._rot_rpy(-1.5708, 3.1416, 0.0), ca.DM([0, 0, 0]))
         Rz7 = self._rot_z(q[6])
 
+        # Chain the transformations
         T = ca.DM(np.eye(4))
         T = T @ T01 @ self._homog(Rz1, ca.DM([0, 0, 0]))
         T = T @ T12 @ self._homog(Rz2, ca.DM([0, 0, 0]))
@@ -260,12 +290,12 @@ class RobotKinematics:
         T = T @ T56 @ self._homog(Rz6, ca.DM([0, 0, 0]))
         T = T @ T67 @ self._homog(Rz7, ca.DM([0, 0, 0]))
 
-        # Add transformation from iiwa_link_7 to iiwa_link_ee (found in URDF)
-        # <origin xyz="0 0 0.045" rpy="0 0 0"/>
-        # T_7_to_ee = self._trans(0.0, 0.0, 0.045)
-        # T = T @ T_7_to_ee
-
-        # Extract position - now matches iiwa_link_ee frame like Pinocchio/KDL
+        # Add transformation from iiwa_link_7 to iiwa_link_ee 
+        # FOUND: Fixed joint "iiwa_joint_ee" with xyz="0 0 0.045" rpy="0 0 0"
+        T_7_to_ee = self._trans(0.0, 0.0, 0.045)
+        T = T @ T_7_to_ee
+        
+        # Extract position - should now match iiwa_link_ee frame exactly
         return T[0:3, 3]
     
     def solve_ik(self, goal_xyz: np.ndarray, q_init: np.ndarray, 
