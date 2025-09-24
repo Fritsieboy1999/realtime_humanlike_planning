@@ -50,8 +50,13 @@ class TaskParams3D:
         
         xi0 = np.concatenate([q_start, dq_start])
         
+        # Ensure goal_position is proper 3D array
+        goal_array = np.asarray(goal_position, dtype=float).flatten()
+        if goal_array.size != 3:
+            raise ValueError(f"Goal position must have 3 elements, got {goal_array.size}")
+        
         return cls(
             xi0=xi0,
-            goal=goal_position,
+            goal=goal_array,
             width=width
         )

@@ -314,7 +314,26 @@ namespace cartesian_impedance_controller {
 
     void CartesianImpedanceController::refPoseCallback(const geometry_msgs::PoseStamped::ConstPtr& msg) {
         ROS_INFO_STREAM("Received reference pose message: " << msg->pose.position.x << " " << msg->pose.position.y << " " << msg->pose.position.z << " " << msg->pose.orientation.w << " " << msg->pose.orientation.x << " " << msg->pose.orientation.y << " " << msg->pose.orientation.z);
-        ee_position_ref =  Eigen::Vector3d(msg->pose.position.x,msg->pose.position.y,msg->pose.position.z);
+        
+        // Only update reference position components that have non-zero stiffness
+        // This prevents the robot from tracking reference poses in zero-stiffness directions
+        if (K(0, 0) > 1e-6) {  // X stiffness > 0
+            ee_position_ref(0) = msg->pose.position.x;
+        } else {
+            ROS_INFO("Keeping X reference unchanged (zero stiffness)");
+        }
+        if (K(1, 1) > 1e-6) {  // Y stiffness > 0
+            ee_position_ref(1) = msg->pose.position.y;
+        } else {
+            ROS_INFO("Keeping Y reference unchanged (zero stiffness)");
+        }
+        if (K(2, 2) > 1e-6) {  // Z stiffness > 0
+            ee_position_ref(2) = msg->pose.position.z;
+        } else {
+            ROS_INFO("Keeping Z reference unchanged (zero stiffness)");
+        }
+        
+        // Always update orientation (for now - could be made conditional too)
         ee_orientation_ref = Eigen::Quaterniond(msg->pose.orientation.w, msg->pose.orientation.x, msg->pose.orientation.y, msg->pose.orientation.z);
     }
 

@@ -1,0 +1,59 @@
+<?xml version="1.0"?>
+<launch>
+  <!-- Arguments -->
+  <arg name="robot_name" default="iiwa"/>
+  <!-- GUI setting - can be overridden, defaults to false (headless) as per config -->
+  <arg name="gui" default="false"/>
+  <arg name="paused" default="false"/>
+  <arg name="debug" default="false"/>
+  <arg name="rviz" default="true"/>
+  
+  <!-- Load enhanced planning configuration first -->
+  <rosparam file="$(find realtime_humanlike_planning)/config/planning_config.yaml" command="load" ns="planning_config"/>
+  
+  <!-- Launch Gazebo with IIWA robot using custom config -->
+  <include file="$(find realtime_humanlike_planning)/launch/iiwa_gazebo_custom_config.launch">
+    <arg name="robot_name" value="$(arg robot_name)"/>
+    <arg name="gui" value="$(arg gui)"/>
+    <arg name="paused" value="$(arg paused)"/>
+  </include>
+
+  <!-- Load controller parameters for CartesianImpedanceController -->
+  <rosparam file="$(find iiwa_impedance_control)/config/iiwa_impedance_control.yaml" command="load" ns="$(arg robot_name)"/>
+
+  <!-- Switch to CartesianImpedanceController after startup -->
+  <node name="switch_to_impedance_control" pkg="realtime_humanlike_planning" 
+        type="switch_controllers.py" respawn="false" output="screen"
+        launch-prefix="bash -c 'sleep 12; $0 $@'"/>
+
+  <!-- Start enhanced controller manager -->
+  <node name="enhanced_controller_manager" pkg="realtime_humanlike_planning" 
+        type="enhanced_controller_manager.py" output="screen" respawn="false"
+        launch-prefix="bash -c 'sleep 15; $0 $@'">
+    <param name="robot_name" value="$(arg robot_name)"/>
+    <param name="use_simulation" value="true"/>
+  </node>
+
+  <!-- Start the enhanced planning interface -->
+  <node name="iiwa_planning_interface_enhanced" pkg="realtime_humanlike_planning" 
+        type="iiwa_planning_interface_enhanced.py" output="screen" if="$(eval not arg('debug'))"
+        launch-prefix="bash -c 'sleep 20; $0 $@'">
+    <param name="robot_name" value="$(arg robot_name)"/>
+    <param name="use_simulation" value="true"/>
+  </node>
+  
+  <!-- Debug mode: launch planning interface with Python debugger -->
+  <node name="iiwa_planning_interface_enhanced" pkg="realtime_humanlike_planning" 
+        type="iiwa_planning_interface_enhanced.py" output="screen" if="$(arg debug)"
+        launch-prefix="bash -c 'sleep 20; python3 -u $0 $@'">
+    <param name="robot_name" value="$(arg robot_name)"/>
+    <param name="use_simulation" value="true"/>
+  </node>
+
+  <!-- Launch RViz with custom config if requested -->
+  <node name="rviz" pkg="rviz" type="rviz" if="$(arg rviz)"
+        args="-d $(find realtime_humanlike_planning)/config/iiwa_planning.rviz"/>
+
+  <!-- Information will be displayed in console logs instead -->
+
+</launch>

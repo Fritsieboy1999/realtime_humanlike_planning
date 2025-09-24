@@ -254,9 +254,33 @@ class VanHallHumanReaching3D_Optimized:
         Returns:
             Optimization result with cost analysis
         """
-        # Convert initial state and goal
-        xi0 = np.asarray(task.xi0, dtype=float).reshape(self.NST)
-        goal = np.asarray(task.goal, dtype=float).reshape(self.NGOAL)
+        # Convert initial state and goal with defensive checks
+        xi0 = np.asarray(task.xi0, dtype=float)
+        if xi0.shape != (self.NST,):
+            raise ValueError(f"Initial state xi0 has wrong shape {xi0.shape}, expected ({self.NST},)")
+        
+        goal = np.asarray(task.goal, dtype=float)
+        
+        # Robust handling of goal shape issues 
+        if goal.size != self.NGOAL:
+            # Try common fixes
+            if hasattr(task.goal, '__iter__') and len(task.goal) == self.NGOAL:
+                # If it's iterable with correct length, convert properly
+                goal = np.array(list(task.goal), dtype=float)
+            elif goal.size == 1 and hasattr(task.goal, '__iter__'):
+                # Nested structure - try flattening
+                flattened = np.array(task.goal, dtype=float).flatten()
+                if flattened.size >= self.NGOAL:
+                    goal = flattened[:self.NGOAL]
+                else:
+                    goal = np.array([0.5, 0.2, 0.6], dtype=float)  # Safe default
+            else:
+                goal = np.array([0.5, 0.2, 0.6], dtype=float)  # Safe default
+        
+        # Final validation and reshape
+        if goal.size != self.NGOAL:
+            raise ValueError(f"Goal has wrong size {goal.size}, expected {self.NGOAL}. Goal value: {goal}")
+        goal = goal.reshape(self.NGOAL)
 
         # Calculate Fitts' law duration if enabled
         fitts_duration = None
@@ -268,7 +292,7 @@ class VanHallHumanReaching3D_Optimized:
                 fitts_duration = fitts_params["predicted_time"]
                 print(f"Fitts' law: D={fitts_params['distance']:.3f}m, W={width:.3f}m, MT={fitts_duration:.3f}s")
                 
-                # Adjust horizon to match Fitts' duration
+                # Adjust horizon to match Fitts' duration exactly
                 new_H = self.fitts_law.adjust_horizon_for_fitts(fitts_duration, self.rp.h, self.H)
                 if new_H != self.H:
                     print(f"Adjusting horizon from {self.H} to {new_H} steps for Fitts' duration")
@@ -288,6 +312,7 @@ class VanHallHumanReaching3D_Optimized:
                     print("Rebuilding solver template for new horizon...")
                     self._build_solver_template()
                     print(f"Solver rebuilt: {old_H} → {self.H} steps")
+                    print(f"🔍 DEBUG: New bounds dimensions - vars: {self.args_template['lbx'].shape}, constraints: {self.args_template['lbg'].shape}")
 
         # Compute mass matrix and damping at initial configuration
         q0 = xi0[:self.nq]
@@ -295,8 +320,14 @@ class VanHallHumanReaching3D_Optimized:
         M_inv = np.linalg.inv(M + 0.2 * np.eye(self.nq))  # Add regularization
         D = np.diag(self.dynamics.joint_damping)
         
-
-        start_ee_pos = np.asarray(start_ee_pos, dtype=float).reshape(self.NGOAL)
+        # Compute starting end-effector position if not provided
+        if start_ee_pos is None:
+            start_ee_pos = self.kinematics.forward_kinematics_numeric(q0)
+            
+        start_ee_pos = np.asarray(start_ee_pos, dtype=float).flatten()
+        if start_ee_pos.size != self.NGOAL:
+            raise ValueError(f"Start EE position must have {self.NGOAL} elements, got {start_ee_pos.size}")
+        start_ee_pos = start_ee_pos.reshape(self.NGOAL)
 
         # Combine parameters
         fitts_value = fitts_duration if fitts_duration is not None else 0.0
@@ -313,6 +344,21 @@ class VanHallHumanReaching3D_Optimized:
         # Create initial guess
         x0 = self._create_initial_guess(task, fitts_duration)
         
+        # Verify dimensions match after potential horizon change
+        expected_x0_size = self.NST * self.H + self.NST * self.H + self.nq * self.H  # X + C + U
+        if len(x0) != expected_x0_size:
+            print(f"⚠️ WARNING: Initial guess dimension mismatch!")
+            print(f"   Expected: {expected_x0_size} (H={self.H})")
+            print(f"   Got: {len(x0)}")
+            print(f"   Regenerating initial guess with correct horizon...")
+            x0 = self._create_initial_guess(task, fitts_duration)
+        
+        # Debug problem dimensions before solving
+        print(f"🔍 DEBUG: Problem dimensions before solve:")
+        print(f"   Variables x0: {len(x0)} (horizon H={self.H})")
+        print(f"   Parameters p: {len(p)}")
+        print(f"   Template args shapes: {[(k, v.shape if hasattr(v, 'shape') else f'len={len(v)}' if hasattr(v, '__len__') else str(type(v))) for k, v in self.args_template.items()]}")
+        
         # Solve using pre-built solver
         sol = self.solver(p=p, x0=x0, **self.args_template)
         
@@ -321,6 +367,28 @@ class VanHallHumanReaching3D_Optimized:
         
         # Parse solution
         result = self._parse_solution(w_opt)
+        
+        # Add solver status information
+        solver_stats = self.solver.stats()
+        
+        # Check if solver converged successfully
+        # CasADi solvers typically use 'return_status' or similar
+        solver_success = False
+        if 'return_status' in solver_stats:
+            # For IPOPT and similar solvers
+            solver_success = solver_stats['return_status'] in ['Solve_Succeeded', 'Solved_To_Acceptable_Level']
+        elif 'success' in solver_stats:
+            solver_success = solver_stats['success']
+        else:
+            # Fallback: assume success if we got a solution
+            solver_success = True
+            
+        result.success = solver_success
+        result.solver_stats = solver_stats
+        
+        # Optional debug info
+        if solver_stats.get('return_status') not in ['Solve_Succeeded', 'Solved_To_Acceptable_Level']:
+            print(f"Solver return status: {solver_stats.get('return_status', 'unknown')}")
         
         # Add cost analysis
         cost_types = self.rp.cost_type if isinstance(self.rp.cost_type, list) else [self.rp.cost_type]

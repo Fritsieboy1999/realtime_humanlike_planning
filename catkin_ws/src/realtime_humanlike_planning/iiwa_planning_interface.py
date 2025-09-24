@@ -32,12 +32,14 @@ import termios
 import select
 import os
 
-# Ensure ROS Pinocchio is available in the path
-sys.path.insert(0, '/opt/openrobots/lib/python3.8/site-packages')
-
 # Add current directory to Python path for imports
 current_dir = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, current_dir)
+
+# Add ROS site-packages to Python path for pinocchio
+ros_site_packages = '/opt/ros/noetic/lib/python3.8/site-packages'
+if ros_site_packages not in sys.path:
+    sys.path.insert(0, ros_site_packages)
 
 # Import the planning modules
 from planning import VanHallHumanReaching3D_Optimized

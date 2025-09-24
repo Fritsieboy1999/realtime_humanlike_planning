@@ -62,14 +62,23 @@ class InitialTrajectoryGenerator:
             joint_effort_limits = np.array([320, 320, 176, 176, 110, 40, 40])
         
         # Solve IK for goal position
+        goal_pos = task_params.goal
+        print(f"🎯 IK target: [{goal_pos[0]:.3f}, {goal_pos[1]:.3f}, {goal_pos[2]:.3f}]")
+        
         try:
             q_goal = self.kinematics.solve_ik(task_params.goal, q_start,
                                             joint_limits_lower=joint_limits_lower,
                                             joint_limits_upper=joint_limits_upper)
             goal_error = np.linalg.norm(self.kinematics.forward_kinematics_numeric(q_goal) - task_params.goal)
-            print(f"IK converged: goal error = {goal_error:.6f}m")
+            print(f"✅ IK converged: goal error = {goal_error:.6f}m")
+            
+            # Check if goal is reachable within tolerance
+            if goal_error > 0.05:  # 5cm tolerance
+                print(f"⚠️ Warning: Large IK error ({goal_error:.3f}m), goal may be unreachable")
+                
         except Exception as e:
-            print(f"Warning: IK failed ({e}), using start position as goal")
+            print(f"❌ Warning: IK failed ({e}), using start position as goal")
+            print(f"   This may cause infeasible optimization problem!")
             q_goal = q_start.copy()
         
         # Create smooth trajectory from start to goal

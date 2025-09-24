@@ -5,6 +5,18 @@ Example usage of the modular VanHallHumanReaching3D_Optimized planner.
 
 import numpy as np
 import matplotlib.pyplot as plt
+import sys
+import os
+
+# Add current directory to Python path for imports
+current_dir = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, current_dir)
+
+# Add ROS site-packages to Python path for pinocchio
+ros_site_packages = '/opt/ros/noetic/lib/python3.8/site-packages'
+if ros_site_packages not in sys.path:
+    sys.path.insert(0, ros_site_packages)
+
 from planning import VanHallHumanReaching3D_Optimized
 from parameters.tasks.default_task_3d import TaskParams3D
 from parameters.rewards.van_hall_reward_3d import VanHallRewardParams3D

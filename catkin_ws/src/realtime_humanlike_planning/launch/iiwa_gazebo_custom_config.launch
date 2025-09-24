@@ -34,7 +34,10 @@
         <arg name="headless" value="$(arg headless)"/>
     </include>
 
-    <!-- Spawn robot with custom initial joint configuration -->
+    <!-- Load enhanced planning configuration for initial joint states -->
+    <rosparam file="$(find realtime_humanlike_planning)/config/planning_config.yaml" command="load" ns="initial_config"/>
+
+    <!-- Spawn robot with custom initial joint configuration from YAML -->
     <node name="urdf_spawner" pkg="gazebo_ros" type="spawn_model" respawn="false" output="screen"
         args="-urdf -model iiwa -param robot_description
               -J iiwa_joint_1 0.0

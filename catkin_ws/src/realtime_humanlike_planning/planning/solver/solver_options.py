@@ -23,13 +23,16 @@ class SolverOptions:
         return {
             "ipopt.print_level": 0,               # Quiet output
             "ipopt.tol": 1e-3,                   # Good convergence tolerance
-            "ipopt.acceptable_tol": 1e-2,        # Reasonable backup tolerance
-            "ipopt.acceptable_iter": 3,          # Quick acceptance
-            "ipopt.max_iter": 300,               # Reasonable iteration limit
+            "ipopt.acceptable_tol": 5e-2,        # More relaxed backup tolerance for large problems
+            "ipopt.acceptable_iter": 5,          # Allow more acceptable iterations
+            "ipopt.max_iter": 1000,              # Much higher limit for Fitts' Law expanded horizons
             "ipopt.hessian_approximation": "limited-memory",  # Fast Hessian approx
             "ipopt.linear_solver": "mumps",      # MUMPS for smooth trajectories
-            "ipopt.mu_strategy": "monotone",     # Faster barrier updates
-            "ipopt.alpha_for_y": "primal",       # Faster dual updates  
+            "ipopt.mu_strategy": "adaptive",     # Adaptive barrier updates for robustness
+            "ipopt.alpha_for_y": "primal",       # Faster dual updates
+            "ipopt.warm_start_init_point": "yes", # Enable warm starting
+            "ipopt.warm_start_bound_push": 1e-6,  # Warm start settings
+            "ipopt.warm_start_mult_bound_push": 1e-6,
             "print_time": 0,
             "ipopt.sb": "yes",
         }
@@ -45,9 +48,9 @@ class SolverOptions:
         return {
             "ipopt.print_level": 0,
             "ipopt.tol": 1e-3,
-            "ipopt.acceptable_tol": 1e-2,
-            "ipopt.acceptable_iter": 3,
-            "ipopt.max_iter": 300,
+            "ipopt.acceptable_tol": 5e-2,        # More relaxed backup tolerance for large problems
+            "ipopt.acceptable_iter": 5,          # Allow more acceptable iterations
+            "ipopt.max_iter": 1000,              # Much higher limit for Fitts' Law expanded horizons
             "ipopt.hessian_approximation": "limited-memory",
             "ipopt.linear_solver": "ma27",
             "ipopt.mu_strategy": "monotone",
@@ -67,9 +70,9 @@ class SolverOptions:
         return {
             "ipopt.print_level": 0,
             "ipopt.tol": 1e-3,
-            "ipopt.acceptable_tol": 1e-2,
-            "ipopt.acceptable_iter": 3,
-            "ipopt.max_iter": 300,
+            "ipopt.acceptable_tol": 5e-2,        # More relaxed backup tolerance for large problems
+            "ipopt.acceptable_iter": 5,          # Allow more acceptable iterations
+            "ipopt.max_iter": 1000,              # Much higher limit for Fitts' Law expanded horizons
             "ipopt.hessian_approximation": "limited-memory",
             "ipopt.linear_solver": "ma57",
             "ipopt.mu_strategy": "monotone",

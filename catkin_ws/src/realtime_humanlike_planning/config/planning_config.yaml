@@ -1,0 +1,43 @@
+# IIWA Enhanced Planning System Configuration
+# Centralized configuration for all initial settings
+
+# Initial robot joint configuration [rad]
+# Joints: [joint_1, joint_2, joint_3, joint_4, joint_5, joint_6, joint_7]
+# This configuration matches the default task parameters in TaskParams3D
+initial_joint_state: [0.0, 0.0, 0.0, -1.57079632679, 0.0, 1.57079632679, 0.0]  # [0, 0, 0, -π/2, 0, π/2, 0]
+
+# Cartesian impedance stiffness parameters [N/m for translation, Nm/rad for rotation]
+# Format: [X, Y, Z, A, B, C] where A,B,C are rotational stiffness around X,Y,Z axes
+initial_cartesian_stiffness: [0.1, 0.1, 300, 300, 300, 300]
+
+# Cartesian damping parameters [Ns/m for translation, Nms/rad for rotation] 
+# Format: [X, Y, Z, A, B, C]
+initial_cartesian_damping: [2.0, 2.0, 2.0, 2.0, 1.0, 1.0]
+
+# Initial target width for planning [m]
+initial_target_width: 0.015
+
+# Default goal position [m] (used as initial value)
+default_goal_position: [0.5, 0.2, 0.6]
+
+# Default z-plane height [m] (used as initial value)  
+default_z_plane_height: 0.6
+
+# Planning parameters
+planning:
+  horizon: 30
+  solver_type: "mumps"
+  use_fitts_law: true  # Enable Fitts' Law for human-like timing
+  
+# Visualization settings
+visualization:
+  z_plane_size: 1.0
+  z_plane_alpha: 0.3
+  target_scale: 0.05  # Scaling factor for target visualization
+  show_initial_trajectory: true
+  initial_trajectory_alpha: 0.6
+  
+
+# Simulation settings
+simulation:
+  gazebo_gui: false  # Set to false to run Gazebo headless (no GUI)

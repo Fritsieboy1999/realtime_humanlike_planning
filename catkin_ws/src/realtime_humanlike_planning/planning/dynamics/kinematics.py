@@ -290,7 +290,12 @@ class RobotKinematics:
             Joint configuration that reaches the goal (7,)
         """
         q = np.array(q_init, dtype=float).reshape(-1)
-        goal = np.array(goal_xyz, dtype=float).reshape(3)
+        
+        # Robust goal handling
+        goal = np.asarray(goal_xyz, dtype=float).flatten()
+        if goal.size != 3:
+            raise ValueError(f"Goal must have 3 elements, got {goal.size}. Goal value: {goal_xyz}")
+        goal = goal.reshape(3)
         
         # Default joint limits if not provided
         if joint_limits_lower is None:
